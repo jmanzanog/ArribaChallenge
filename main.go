@@ -1,49 +1,60 @@
 package main
 
 import (
-	"fmt"
+
+	"gin/function"
 	"github.com/gin-gonic/gin"
-	"net/http"
+	"log"
+	"sync"
 )
 
-func main() {
-	router := gin.Default()
-	router.GET("/", func(c *gin.Context) {
-		c.JSON(200, gin.H{
-			"message": "Hello Jose Manzano!",
-		})
-	})
+var (
+	balance int = 100
+)
 
-	router.GET("/user/:name", func(c *gin.Context) {
-		name := c.Param("name")
-		c.String(http.StatusOK, "Hello %s", name)
-	})
+func Deposit(amount int, wg *sync.WaitGroup, lock *sync.RWMutex) {
+	defer wg.Done()
+	lock.Lock()
+	b := balance
+	balance = b + amount
+	lock.Unlock()
+}
+
+func Balance(lock *sync.RWMutex) int {
+	lock.RLock()
+	b := balance
+	lock.RUnlock()
+	return b
+}
+
+func main() {
+
+	var wg sync.WaitGroup
+	var lock sync.RWMutex
+
+	for i := 1; i <= 5; i++ {
+		wg.Add(1)
+		go Deposit(i*100, &wg, &lock)
+	}
+	wg.Wait()
+	log.Println(Balance(&lock))
+
+	router := gin.Default()
+	router.GET("/", function.Saludar1())
+
+	router.GET("/user/:name", function.SaludarFunc())
 
 	// However, this one will match /user/john/ and also /user/john/send
 	// If no other routers match /user/john, it will redirect to /user/john/
-	router.GET("/user/:name/*action", func(c *gin.Context) {
-		name := c.Param("name")
-		action := c.Param("action")
-		message := name + " is " + action
-		c.String(http.StatusOK, message)
-	})
+	router.GET("/user/:name/*action", function.ActionTest())
 
 	// For each matched request Context will hold the route definition
-	router.POST("/user/:name/*action", func(c *gin.Context) {
-		b := c.FullPath() == "/user/:name/*action" // true
-		c.String(http.StatusOK, "%t", b)
-	})
+	router.POST("/user/:name/*action", function.ActionPost())
 
 	// Recovery middleware recovers from any panics and writes a 500 if there was one.
-	router.Use(gin.CustomRecovery(func(c *gin.Context, recovered interface{}) {
-		if err, ok := recovered.(string); ok {
-			c.String(http.StatusInternalServerError, fmt.Sprintf("error: %s", err))
-		}
-		c.AbortWithStatus(http.StatusInternalServerError)
-	}))
+	router.Use(gin.CustomRecovery(function.CustomRecovery()))
 
 	router.Use(gin.Logger())
-
 
 	// Per route middleware, you can add as many as you desire.
 	router.GET("/benchmark", MyBenchLogger(), benchEndpoint)
